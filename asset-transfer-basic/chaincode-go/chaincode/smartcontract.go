@@ -28,7 +28,7 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 		{ID: "gem", Amount: 3000, Owner: "SEO"},
 		{ID: "gem", Amount: 1, Owner: "Team1"},
 		{ID: "exp", Amount: 6, Owner: "Team1"},
-		{ID: "gem", Amount: 0, Owner: "Team2"},
+		{ID: "gem", Amount: 15, Owner: "Team2"},
 		{ID: "exp", Amount: 15, Owner: "Team2"},
 	}
 
@@ -54,7 +54,12 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 
 // CreateAsset issues a new asset to the world state with given details.
 func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, id string, amount int, owner string) error {
-	exists, err := s.AssetExists(ctx, id)
+	compositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, owner})
+	if err != nil {
+		return fmt.Errorf("failed to create composite key for asset: %v", err)
+	}
+
+	exists, err := s.AssetExists(ctx, compositeKey)
 	if err != nil {
 		return err
 	}
@@ -72,12 +77,16 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 		return err
 	}
 
-	return ctx.GetStub().PutState(id, assetJSON)
+	return ctx.GetStub().PutState(compositeKey, assetJSON)
 }
 
-// ReadAsset returns the asset stored in the world state with given id.
-func (s *SmartContract) ReadAsset(ctx contractapi.TransactionContextInterface, id string) (*Asset, error) {
-	assetJSON, err := ctx.GetStub().GetState(id)
+// ReadAsset returns the asset stored in the world state with given id and owner.
+func (s *SmartContract) ReadAsset(ctx contractapi.TransactionContextInterface, id string, owner string) (*Asset, error) {
+	compositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, owner})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create composite key: %v", err)
+	}
+	assetJSON, err := ctx.GetStub().GetState(compositeKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read from world state: %v", err)
 	}
