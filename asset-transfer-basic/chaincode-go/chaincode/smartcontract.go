@@ -16,22 +16,20 @@ type SmartContract struct {
 // Insert struct field in alphabetic order => to achieve determinism across languages
 // golang keeps the order when marshal to json but doesn't order automatically
 type Asset struct {
-	AppraisedValue int    `json:"AppraisedValue"`
-	Color          string `json:"Color"`
-	ID             string `json:"ID"`
-	Owner          string `json:"Owner"`
-	Size           int    `json:"Size"`
+	ID     string `json:"ID"`
+	Owner  string `json:"Owner"`
+	Amount int    `json:"Amount"`
 }
 
 // InitLedger adds a base set of assets to the ledger
 func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
 	assets := []Asset{
-		{ID: "asset1", Color: "blue", Size: 5, Owner: "Tomoko", AppraisedValue: 300},
-		{ID: "asset2", Color: "red", Size: 5, Owner: "Brad", AppraisedValue: 400},
-		{ID: "asset3", Color: "green", Size: 10, Owner: "Jin Soo", AppraisedValue: 500},
-		{ID: "asset4", Color: "yellow", Size: 10, Owner: "Max", AppraisedValue: 600},
-		{ID: "asset5", Color: "black", Size: 15, Owner: "Adriana", AppraisedValue: 700},
-		{ID: "asset6", Color: "white", Size: 15, Owner: "Michel", AppraisedValue: 800},
+		{ID: "exp", Amount: 5, Owner: "Distrib"},
+		{ID: "gem", Amount: 3000, Owner: "SEO"},
+		{ID: "gem", Amount: 1, Owner: "Team1"},
+		{ID: "exp", Amount: 6, Owner: "Team1"},
+		{ID: "gem", Amount: 0, Owner: "Team2"},
+		{ID: "exp", Amount: 15, Owner: "Team2"},
 	}
 
 	for _, asset := range assets {
@@ -40,9 +38,14 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 			return err
 		}
 
-		err = ctx.GetStub().PutState(asset.ID, assetJSON)
+		compositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{asset.ID, asset.Owner})
 		if err != nil {
-			return fmt.Errorf("failed to put to world state. %v", err)
+			return err
+		}
+
+		err = ctx.GetStub().PutState(compositeKey, assetJSON)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -50,7 +53,7 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 }
 
 // CreateAsset issues a new asset to the world state with given details.
-func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, id string, color string, size int, owner string, appraisedValue int) error {
+func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, id string, amount int, owner string) error {
 	exists, err := s.AssetExists(ctx, id)
 	if err != nil {
 		return err
@@ -60,11 +63,9 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 	}
 
 	asset := Asset{
-		ID:             id,
-		Color:          color,
-		Size:           size,
-		Owner:          owner,
-		AppraisedValue: appraisedValue,
+		ID:     id,
+		Amount: amount,
+		Owner:  owner,
 	}
 	assetJSON, err := json.Marshal(asset)
 	if err != nil {
@@ -94,7 +95,7 @@ func (s *SmartContract) ReadAsset(ctx contractapi.TransactionContextInterface, i
 }
 
 // UpdateAsset updates an existing asset in the world state with provided parameters.
-func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface, id string, color string, size int, owner string, appraisedValue int) error {
+func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface, id string, owner string, amount int) error {
 	exists, err := s.AssetExists(ctx, id)
 	if err != nil {
 		return err
@@ -105,11 +106,9 @@ func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface,
 
 	// overwriting original asset with new asset
 	asset := Asset{
-		ID:             id,
-		Color:          color,
-		Size:           size,
-		Owner:          owner,
-		AppraisedValue: appraisedValue,
+		ID:     id,
+		Amount: amount,
+		Owner:  owner,
 	}
 	assetJSON, err := json.Marshal(asset)
 	if err != nil {
@@ -117,19 +116,6 @@ func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface,
 	}
 
 	return ctx.GetStub().PutState(id, assetJSON)
-}
-
-// DeleteAsset deletes an given asset from the world state.
-func (s *SmartContract) DeleteAsset(ctx contractapi.TransactionContextInterface, id string) error {
-	exists, err := s.AssetExists(ctx, id)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return fmt.Errorf("the asset %s does not exist", id)
-	}
-
-	return ctx.GetStub().DelState(id)
 }
 
 // AssetExists returns true when asset with given ID exists in world state
@@ -143,7 +129,7 @@ func (s *SmartContract) AssetExists(ctx contractapi.TransactionContextInterface,
 }
 
 // TransferAsset updates the owner field of asset with given id in world state, and returns the old owner.
-func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterface, id string, newOwner string) (string, error) {
+func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterface, id string, newOwner string, Amount int) (string, error) {
 	asset, err := s.ReadAsset(ctx, id)
 	if err != nil {
 		return "", err
@@ -165,30 +151,133 @@ func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterfac
 	return oldOwner, nil
 }
 
-// GetAllAssets returns all assets found in world state
-func (s *SmartContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]*Asset, error) {
-	// range query with empty string for startKey and endKey does an
-	// open-ended query of all assets in the chaincode namespace.
-	resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
+// TransferGemToDistrib transfers Gem from a user to Distrib and credits Exp to the user's wallet
+func (s *SmartContract) TransferGemToDistrib(ctx contractapi.TransactionContextInterface, user string, gemAmount int) error {
+	// Get the user's Gem asset
+	userGemKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"gem", user})
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create composite key for user's Gem asset: %v", err)
 	}
-	defer resultsIterator.Close()
-
-	var assets []*Asset
-	for resultsIterator.HasNext() {
-		queryResponse, err := resultsIterator.Next()
-		if err != nil {
-			return nil, err
-		}
-
-		var asset Asset
-		err = json.Unmarshal(queryResponse.Value, &asset)
-		if err != nil {
-			return nil, err
-		}
-		assets = append(assets, &asset)
+	userGemJSON, err := ctx.GetStub().GetState(userGemKey)
+	if err != nil {
+		return fmt.Errorf("failed to read user's Gem asset: %v", err)
+	}
+	if userGemJSON == nil {
+		return fmt.Errorf("user does not own any Gem")
 	}
 
-	return assets, nil
+	var userGem Asset
+	err = json.Unmarshal(userGemJSON, &userGem)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal user's Gem asset: %v", err)
+	}
+
+	// Check if the user has enough Gem to transfer
+	if userGem.Amount < gemAmount {
+		return fmt.Errorf("insufficient Gem balance")
+	}
+
+	// Get Distrib's Gem asset
+	distribGemKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"gem", "Distrib"})
+	if err != nil {
+		return fmt.Errorf("failed to create composite key for Distrib's Gem asset: %v", err)
+	}
+	distribGemJSON, err := ctx.GetStub().GetState(distribGemKey)
+	if err != nil {
+		return fmt.Errorf("failed to read Distrib's Gem asset: %v", err)
+	}
+	var distribGem Asset
+	if distribGemJSON != nil {
+		err = json.Unmarshal(distribGemJSON, &distribGem)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal Distrib's Gem asset: %v", err)
+		}
+	} else {
+		distribGem = Asset{ID: "gem", Owner: "Distrib", Amount: 0}
+	}
+
+	// Transfer Gem from user to Distrib
+	userGem.Amount -= gemAmount
+	distribGem.Amount += gemAmount
+
+	// Update the user's Gem asset
+	userGemJSON, err = json.Marshal(userGem)
+	if err != nil {
+		return fmt.Errorf("failed to marshal user's Gem asset: %v", err)
+	}
+	err = ctx.GetStub().PutState(userGemKey, userGemJSON)
+	if err != nil {
+		return fmt.Errorf("failed to update user's Gem asset: %v", err)
+	}
+
+	// Update Distrib's Gem asset
+	distribGemJSON, err = json.Marshal(distribGem)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Distrib's Gem asset: %v", err)
+	}
+	err = ctx.GetStub().PutState(distribGemKey, distribGemJSON)
+	if err != nil {
+		return fmt.Errorf("failed to update Distrib's Gem asset: %v", err)
+	}
+
+	// Get the user's Exp asset
+	userExpKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"exp", user})
+	if err != nil {
+		return fmt.Errorf("failed to create composite key for user's Exp asset: %v", err)
+	}
+	userExpJSON, err := ctx.GetStub().GetState(userExpKey)
+	if err != nil {
+		return fmt.Errorf("failed to read user's Exp asset: %v", err)
+	}
+	var userExp Asset
+	if userExpJSON != nil {
+		err = json.Unmarshal(userExpJSON, &userExp)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal user's Exp asset: %v", err)
+		}
+	} else {
+		userExp = Asset{ID: "exp", Owner: user, Amount: 0}
+	}
+
+	// Credit Exp to the user's wallet
+	userExp.Amount += gemAmount
+
+	// Update the user's Exp asset
+	userExpJSON, err = json.Marshal(userExp)
+	if err != nil {
+		return fmt.Errorf("failed to marshal user's Exp asset: %v", err)
+	}
+	err = ctx.GetStub().PutState(userExpKey, userExpJSON)
+	if err != nil {
+		return fmt.Errorf("failed to update user's Exp asset: %v", err)
+	}
+
+	return nil
+}
+
+// GetAllAssets returns all assets found in the world state
+func (s *SmartContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]Asset, error) {
+    // Get all assets from the ledger
+    resultsIterator, err := ctx.GetStub().GetStateByPartialCompositeKey("Asset", []string{})
+    if err != nil {
+        return nil, fmt.Errorf("failed to get assets: %v", err)
+    }
+    defer resultsIterator.Close()
+
+    var assets []Asset
+    for resultsIterator.HasNext() {
+        queryResponse, err := resultsIterator.Next()
+        if err != nil {
+            return nil, fmt.Errorf("failed to iterate over assets: %v", err)
+        }
+
+        var asset Asset
+        err = json.Unmarshal(queryResponse.Value, &asset)
+        if err != nil {
+            return nil, fmt.Errorf("failed to unmarshal asset: %v", err)
+        }
+        assets = append(assets, asset)
+    }
+
+    return assets, nil
 }
