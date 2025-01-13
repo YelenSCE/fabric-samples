@@ -59,7 +59,7 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 		return fmt.Errorf("failed to create composite key for asset: %v", err)
 	}
 
-	exists, err := s.AssetExists(ctx, compositeKey)
+	exists, err := s.AssetExists(ctx, id, owner)
 	if err != nil {
 		return err
 	}
@@ -128,36 +128,46 @@ func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface,
 }
 
 // AssetExists returns true when asset with given ID exists in world state
-func (s *SmartContract) AssetExists(ctx contractapi.TransactionContextInterface, id string) (bool, error) {
-	assetJSON, err := ctx.GetStub().GetState(id)
+func (s *SmartContract) AssetExists(ctx contractapi.TransactionContextInterface, id string, owner string) (bool, error) {
+	compositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, owner})
 	if err != nil {
-		return false, fmt.Errorf("failed to read from world state: %v", err)
+		return false, fmt.Errorf("failed to create composite key for asset: %v", err)
+	}
+
+	assetJSON, err := ctx.GetStub().GetState(compositeKey)
+	if err != nil {
+		return false, fmt.Errorf("failed to read asset: %v", err)
 	}
 
 	return assetJSON != nil, nil
 }
 
-// TransferAsset updates the owner field of asset with given id in world state, and returns the old owner.
-func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterface, id string, newOwner string, Amount int) (string, error) {
-	asset, err := s.ReadAsset(ctx, id)
-	if err != nil {
-		return "", err
-	}
+// TransferAsset updates the owner field of asset with given id and owner in world state, and returns the old owner.
+func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterface, id string, owner string, newOwner string, amount int) (string, error) {
+    asset, err := s.ReadAsset(ctx, id, owner)
+    if err != nil {
+        return "", err
+    }
 
-	oldOwner := asset.Owner
-	asset.Owner = newOwner
+    oldOwner := asset.Owner
+    asset.Owner = newOwner
 
-	assetJSON, err := json.Marshal(asset)
-	if err != nil {
-		return "", err
-	}
+    assetJSON, err := json.Marshal(asset)
+    if err != nil {
+        return "", err
+    }
 
-	err = ctx.GetStub().PutState(id, assetJSON)
-	if err != nil {
-		return "", err
-	}
+    compositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, owner})
+    if err != nil {
+        return "", fmt.Errorf("failed to create composite key for asset: %v", err)
+    }
 
-	return oldOwner, nil
+    err = ctx.GetStub().PutState(compositeKey, assetJSON)
+    if err != nil {
+        return "", err
+    }
+
+    return oldOwner, nil
 }
 
 // TransferGemToDistrib transfers Gem from a user to Distrib and credits Exp to the user's wallet
