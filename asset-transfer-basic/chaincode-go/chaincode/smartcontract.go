@@ -24,12 +24,12 @@ type Asset struct {
 // InitLedger adds a base set of assets to the ledger
 func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
 	assets := []Asset{
-		{ID: "exp", Amount: 5, Owner: "Distrib"},
-		{ID: "gem", Amount: 3000, Owner: "SEO"},
-		{ID: "gem", Amount: 1, Owner: "Team1"},
-		{ID: "exp", Amount: 6, Owner: "Team1"},
-		{ID: "gem", Amount: 15, Owner: "Team2"},
-		{ID: "exp", Amount: 15, Owner: "Team2"},
+		{ID: "exp", Amount: 5, Owner: "distrib"},
+		{ID: "gem", Amount: 3000, Owner: "seo"},
+		{ID: "gem", Amount: 3, Owner: "team1"},
+		{ID: "exp", Amount: 6, Owner: "team1"},
+		{ID: "gem", Amount: 15, Owner: "team2"},
+		{ID: "exp", Amount: 30, Owner: "team2"},
 	}
 
 	for _, asset := range assets {
@@ -149,133 +149,51 @@ func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterfac
 		return "", err
 	}
 
-	oldOwner := asset.Owner
-	asset.Owner = newOwner
+	if asset.Amount < amount {
+		return "", fmt.Errorf("the asset %s does not have enough amount to transfer", id)
+	}
 
+	oldOwner := asset.Owner
+	asset.Amount -= amount
+
+	// Update the asset for the new owner
+	newAsset := Asset{
+		ID:     id,
+		Amount: amount,
+		Owner:  newOwner,
+	}
+	newAssetJSON, err := json.Marshal(newAsset)
+	if err != nil {
+		return "", err
+	}
+
+	newCompositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, newOwner})
+	if err != nil {
+		return "", fmt.Errorf("failed to create composite key for new asset: %v", err)
+	}
+
+	err = ctx.GetStub().PutState(newCompositeKey, newAssetJSON)
+	if err != nil {
+		return "", err
+	}
+
+	// Update the asset for the old owner
 	assetJSON, err := json.Marshal(asset)
 	if err != nil {
 		return "", err
 	}
 
-	compositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, owner})
+	oldCompositeKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{id, owner})
 	if err != nil {
-		return "", fmt.Errorf("failed to create composite key for asset: %v", err)
+		return "", fmt.Errorf("failed to create composite key for old asset: %v", err)
 	}
 
-	err = ctx.GetStub().PutState(compositeKey, assetJSON)
+	err = ctx.GetStub().PutState(oldCompositeKey, assetJSON)
 	if err != nil {
 		return "", err
 	}
 
 	return oldOwner, nil
-}
-
-// TransferGemToDistrib transfers Gem from a user to Distrib and credits Exp to the user's wallet
-func (s *SmartContract) TransferGemToDistrib(ctx contractapi.TransactionContextInterface, user string, gemAmount int) error {
-	if gemAmount <= 0 {
-		return fmt.Errorf("gemAmount must be positive")
-	}
-
-	// Get the user's Gem asset
-	userGemKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"gem", user})
-	if err != nil {
-		return fmt.Errorf("failed to create composite key for user's Gem asset: %v", err)
-	}
-	userGemJSON, err := ctx.GetStub().GetState(userGemKey)
-	if err != nil {
-		return fmt.Errorf("failed to read user's Gem asset: %v", err)
-	}
-	if userGemJSON == nil {
-		return fmt.Errorf("user does not own any Gem")
-	}
-
-	var userGem Asset
-	err = json.Unmarshal(userGemJSON, &userGem)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal user's Gem asset: %v", err)
-	}
-
-	// Check if the user has enough Gem to transfer
-	if userGem.Amount < gemAmount {
-		return fmt.Errorf("insufficient Gem balance")
-	}
-
-	// Get Distrib's Gem asset
-	distribGemKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"gem", "Distrib"})
-	if err != nil {
-		return fmt.Errorf("failed to create composite key for Distrib's Gem asset: %v", err)
-	}
-	distribGemJSON, err := ctx.GetStub().GetState(distribGemKey)
-	if err != nil {
-		return fmt.Errorf("failed to read Distrib's Gem asset: %v", err)
-	}
-	var distribGem Asset
-	if distribGemJSON != nil {
-		err = json.Unmarshal(distribGemJSON, &distribGem)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal Distrib's Gem asset: %v", err)
-		}
-	} else {
-		distribGem = Asset{ID: "gem", Owner: "Distrib", Amount: 0}
-	}
-
-	// Transfer Gem from user to Distrib
-	userGem.Amount -= gemAmount
-	distribGem.Amount += gemAmount
-
-	// Update the user's Gem asset
-	userGemJSON, err = json.Marshal(userGem)
-	if err != nil {
-		return fmt.Errorf("failed to marshal user's Gem asset: %v", err)
-	}
-	err = ctx.GetStub().PutState(userGemKey, userGemJSON)
-	if err != nil {
-		return fmt.Errorf("failed to update user's Gem asset: %v", err)
-	}
-
-	// Update Distrib's Gem asset
-	distribGemJSON, err = json.Marshal(distribGem)
-	if err != nil {
-		return fmt.Errorf("failed to marshal Distrib's Gem asset: %v", err)
-	}
-	err = ctx.GetStub().PutState(distribGemKey, distribGemJSON)
-	if err != nil {
-		return fmt.Errorf("failed to update Distrib's Gem asset: %v", err)
-	}
-
-	// Get the user's Exp asset
-	userExpKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"exp", user})
-	if err != nil {
-		return fmt.Errorf("failed to create composite key for user's Exp asset: %v", err)
-	}
-	userExpJSON, err := ctx.GetStub().GetState(userExpKey)
-	if err != nil {
-		return fmt.Errorf("failed to read user's Exp asset: %v", err)
-	}
-	var userExp Asset
-	if userExpJSON != nil {
-		err = json.Unmarshal(userExpJSON, &userExp)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal user's Exp asset: %v", err)
-		}
-	} else {
-		userExp = Asset{ID: "exp", Owner: user, Amount: 0}
-	}
-
-	// Credit Exp to the user's wallet
-	userExp.Amount += gemAmount
-
-	// Update the user's Exp asset
-	userExpJSON, err = json.Marshal(userExp)
-	if err != nil {
-		return fmt.Errorf("failed to marshal user's Exp asset: %v", err)
-	}
-	err = ctx.GetStub().PutState(userExpKey, userExpJSON)
-	if err != nil {
-		return fmt.Errorf("failed to update user's Exp asset: %v", err)
-	}
-
-	return nil
 }
 
 // GetAllAssets returns all assets found in the world state
