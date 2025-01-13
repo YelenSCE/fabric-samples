@@ -21,7 +21,7 @@ type Asset struct {
 	Amount int    `json:"Amount"`
 }
 
-// InitLedger adds a base set of assets to the ledger
+// InitLedger adds a base set of assets to the
 func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
 	assets := []Asset{
 		{ID: "exp", Amount: 5, Owner: "distrib"},
