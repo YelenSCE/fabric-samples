@@ -153,6 +153,10 @@ func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterfac
 
 // TransferGemToDistrib transfers Gem from a user to Distrib and credits Exp to the user's wallet
 func (s *SmartContract) TransferGemToDistrib(ctx contractapi.TransactionContextInterface, user string, gemAmount int) error {
+	if gemAmount <= 0 {
+		return fmt.Errorf("gemAmount must be positive")
+	}
+
 	// Get the user's Gem asset
 	userGemKey, err := ctx.GetStub().CreateCompositeKey("Asset", []string{"gem", user})
 	if err != nil {
@@ -257,27 +261,27 @@ func (s *SmartContract) TransferGemToDistrib(ctx contractapi.TransactionContextI
 
 // GetAllAssets returns all assets found in the world state
 func (s *SmartContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]Asset, error) {
-    // Get all assets from the ledger
-    resultsIterator, err := ctx.GetStub().GetStateByPartialCompositeKey("Asset", []string{})
-    if err != nil {
-        return nil, fmt.Errorf("failed to get assets: %v", err)
-    }
-    defer resultsIterator.Close()
+	// Get all assets from the ledger
+	resultsIterator, err := ctx.GetStub().GetStateByPartialCompositeKey("Asset", []string{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assets: %v", err)
+	}
+	defer resultsIterator.Close()
 
-    var assets []Asset
-    for resultsIterator.HasNext() {
-        queryResponse, err := resultsIterator.Next()
-        if err != nil {
-            return nil, fmt.Errorf("failed to iterate over assets: %v", err)
-        }
+	var assets []Asset
+	for resultsIterator.HasNext() {
+		queryResponse, err := resultsIterator.Next()
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate over assets: %v", err)
+		}
 
-        var asset Asset
-        err = json.Unmarshal(queryResponse.Value, &asset)
-        if err != nil {
-            return nil, fmt.Errorf("failed to unmarshal asset: %v", err)
-        }
-        assets = append(assets, asset)
-    }
+		var asset Asset
+		err = json.Unmarshal(queryResponse.Value, &asset)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal asset: %v", err)
+		}
+		assets = append(assets, asset)
+	}
 
-    return assets, nil
+	return assets, nil
 }
