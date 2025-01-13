@@ -156,12 +156,25 @@ func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterfac
 	oldOwner := asset.Owner
 	asset.Amount -= amount
 
-	// Update the asset for the new owner
-	newAsset := Asset{
-		ID:     id,
-		Amount: amount,
-		Owner:  newOwner,
+	// Check if newOwner already has the asset
+	newAsset, err := s.ReadAsset(ctx, id, newOwner)
+	if err != nil && err.Error() != fmt.Sprintf("the asset %s does not exist", id) {
+		return "", err
 	}
+
+	if newAsset != nil {
+		// Sum amounts if the asset exists
+		newAsset.Amount += amount
+	} else {
+		// Create new asset for new owner if it doesn't exist
+		newAsset = &Asset{
+			ID:     id,
+			Amount: amount,
+			Owner:  newOwner,
+		}
+	}
+
+	// Update the state for new owner
 	newAssetJSON, err := json.Marshal(newAsset)
 	if err != nil {
 		return "", err
